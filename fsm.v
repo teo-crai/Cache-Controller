@@ -1,5 +1,5 @@
 module fsm(
-  input read,write,hit,
+  input clk,rst,read,write,hit,
   output reg 
   );
   localparam ST_IDLE=4'b0000; //wait for signals from the cpu
@@ -10,7 +10,7 @@ module fsm(
   //(made a change not yet saved in the main memory)
   localparam ST_WRITE_MISS=4'b0101; //write data over newly brought in block and set block's dirty bit
   //(made a change not yet saved in the main memory)
-  localparam ST_WRITE_BACK=4'b0110; //save data block to main memory if not present to syncronize cache and main memory
+  localparam ST_WRITE_BACK=4'b0110; //data is updated into the memory at a later time(when the cache line is ready to be replaced)
   localparam ST_EVICT=4'b0111; //find victim block according to LRU policy
   //then send block back to main memory; the now empty block's dirty bit is reset
   localparam ST_ALLOCATE=4'b1000;  //bring block to cache from main memory
@@ -35,9 +35,10 @@ module fsm(
                     else if(write) st_next=ST_WRITE_HIT;
                   end
                   else begin
-                    if(dirty) st_next=ST_WRITE_BACK;
+                    if(dirty&&write) st_next=ST_WRITE_BACK;
                     else st_next=ST_EVICT;
                   end
+      ST_WRITE_BACK: st_next=ST_EVICT;
       ST_EVICT: st_next=ST_ALLOCATE;
       ST_ALLOCATE: if(read) st_next=ST_READ_MISS;
                    else if(write) st_next=ST_WRITE_MISS;
@@ -50,6 +51,7 @@ module fsm(
   
   //combinational output block
   always @ (*) begin
+    dirty=0;
     if(st==ST_WRITE_HIT || st==ST_WRITE_MISS) dirty=1;
     else if(st==ST_EVICT) dirty=0;
   end
