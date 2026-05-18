@@ -1,6 +1,6 @@
 module fsm(
   input clk,rst,read,write,hit,
-  output reg 
+  output reg [3:0]st_out
   );
   localparam ST_IDLE=4'b0000; //wait for signals from the cpu
   localparam ST_COMPARE=4'b0001; //try to find tag in cache memory
@@ -18,41 +18,148 @@ module fsm(
   reg [3:0]st; //current state
   reg [3:0]st_next; //next state
   
-  wire dirty; //dirty bit
+  reg dirty; //dirty bit
   
-  always @ (posedge clk, posedge rst)
-    if(rst) st<=ST_IDLE; 
-    else st<=st_next;
+  always @ (posedge clk, posedge rst) begin
+    st_out<=st;
+    if(rst) begin
+      st<=ST_IDLE; 
+      dirty<=0;
+    end
+    else begin
+    st<=st_next;
+    if(st==ST_WRITE_HIT || st==ST_WRITE_MISS) 
+      dirty<=1;
+    else if(st==ST_EVICT) 
+      dirty<=0;
+    end 
   end
   
   //combinational transition block
   always @ (*) begin
     st_next=st;
     case(st)
-      ST_IDLE: if(read||write) st_next=ST_COMPARE;
+      ST_IDLE: if(read||write) 
+                st_next=ST_COMPARE;
       ST_COMPARE: if(hit) begin 
-                    if(read)  st_next=ST_READ_HIT;
-                    else if(write) st_next=ST_WRITE_HIT;
+                    if(read)  
+                      st_next=ST_READ_HIT;
+                    else if(write)
+                      st_next=ST_WRITE_HIT;
                   end
                   else begin
-                    if(dirty&&write) st_next=ST_WRITE_BACK;
-                    else st_next=ST_EVICT;
+                    if(dirty&&write) 
+                      st_next=ST_WRITE_BACK;
+                    else 
+                      st_next=ST_EVICT;
                   end
       ST_WRITE_BACK: st_next=ST_EVICT;
       ST_EVICT: st_next=ST_ALLOCATE;
-      ST_ALLOCATE: if(read) st_next=ST_READ_MISS;
-                   else if(write) st_next=ST_WRITE_MISS;
+      ST_ALLOCATE: if(read) 
+                    st_next=ST_READ_MISS;
+                   else if(write) 
+                    st_next=ST_WRITE_MISS;
       ST_READ_HIT: st_next=ST_IDLE;
       ST_WRITE_HIT: st_next=ST_IDLE;
       ST_READ_MISS: st_next=ST_IDLE;
       ST_WRITE_MISS: st_next=ST_IDLE;
       default:st_next=ST_IDLE;
+    endcase
   end
   
-  //combinational output block
-  always @ (*) begin
-    dirty=0;
-    if(st==ST_WRITE_HIT || st==ST_WRITE_MISS) dirty=1;
-    else if(st==ST_EVICT) dirty=0;
+endmodule 
+
+module fsm_tb;
+  reg clk, rst, read, write, hit;
+  wire [3:0]st_out;
+   
+  //instantiating the fsm unit
+  fsm uut (
+    .clk(clk),
+    .rst(rst),
+    .read(read),
+    .write(write),
+    .hit(hit),
+    .st_out(st_out)
+  );
+   
+  //clock generator
+  always #10 clk = ~clk;
+
+  task run_fsm;
+    reg first_pass; //checks if it's the first loop to simulate a do while so we can enter the loop even if the condition is not yet met(still in the idle state)
+    input task_read, task_write, task_hit; 
+    
+    begin
+      //assign task inputs to the fsm inputs
+      read = task_read;
+      write = task_write;
+      hit = task_hit;
+       
+      $write("Test (R:%b, W:%b, H:%b) Path: ", task_read, task_write, task_hit);
+      
+      //print the idle 
+      print_state();      
+      
+      first_pass = 0;//initialise to 0 when fsm is still in the idle state 
+
+      while (first_pass==0 || (uut.st != 4'b0000)) begin
+        first_pass = 1; //first loop is done->mark as completed
+        //now the while only checks for the next idle state which marks the end of the current caching process
+        @(posedge clk); //advance 1 clock cycle to the next state
+        #1;  
+        print_state();  //prints COMPARE on first loop, then subsequent states
+      end
+      
+      $display("");
+      
+      //reset inputs 
+      read  = 0;
+      write = 0;
+      hit   = 0;
+      #10; //spacing between cases
+    end
+  endtask
+
+  task print_state;
+    begin //decodes the current state and prints the corresponding state 
+      case(uut.st)
+        4'b0000: $write("IDLE ");
+        4'b0001: $write("COMPARE ");
+        4'b0010: $write("READ_HIT ");
+        4'b0011: $write("READ_MISS ");
+        4'b0100: $write("WRITE_HIT ");
+        4'b0101: $write("WRITE_MISS ");
+        4'b0110: $write("WRITE_BACK ");
+        4'b0111: $write("EVICT ");
+        4'b1000: $write("ALLOCATE ");
+        default: $write("UNKNOWN ");
+      endcase
+    end
+  endtask
+   
+  initial begin
+    $display("--Cache FSM Simulation--");
+    
+    //initialising the inputs
+    clk = 0;
+    rst = 0; 
+    read = 0; 
+    write = 0; 
+    hit = 0;
+   
+    //initial reset
+    #10 rst = 1;
+    #10 rst = 0;
+    #10; 
+   
+    run_fsm(1, 0, 1); //read hit
+    run_fsm(1, 0, 0); //read miss
+    run_fsm(0, 1, 1); //write hit
+    run_fsm(0, 1, 0); //write miss
+    run_fsm(0, 0, 0); //idle
+   
+    $display("--End--");
+    $stop;
   end
-endmodule  
+endmodule
