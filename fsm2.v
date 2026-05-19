@@ -1,4 +1,4 @@
-module fsm(
+module fsm2(
   input clk,rst,read,write,hit,
   output reg [3:0]st_out
   );
@@ -69,12 +69,12 @@ module fsm(
   
 endmodule 
 
-module fsm_tb;
+module fsm2_tb;
   reg clk, rst, read, write, hit;
   wire [3:0]st_out;
    
   //instantiating the fsm unit
-  fsm uut (
+  fsm2 uut (
     .clk(clk),
     .rst(rst),
     .read(read),
@@ -83,9 +83,30 @@ module fsm_tb;
     .st_out(st_out)
   );
    
+  //simple cache line
+  reg [31:0] cache_line;
+    
   //clock generator
   always #10 clk = ~clk;
 
+  task print_state;
+    begin //decodes the current state and prints the corresponding state 
+      case(uut.st)
+        4'b0000: $write("IDLE");
+        4'b0001: $write("COMPARE");
+        4'b0010: $write("READ_HIT");
+        4'b0011: $write("READ_MISS");
+        4'b0100: $write("WRITE_HIT");
+        4'b0101: $write("WRITE_MISS");
+        4'b0110: $write("WRITE_BACK");
+        4'b0111: $write("EVICT");
+        4'b1000: $write("ALLOCATE");
+        default: $write("UNKNOWN");
+      endcase
+      $write("(dirty=%b) ", uut.dirty);//prints the value of the dirty bit in the current state
+    end
+  endtask
+  
   task run_fsm;
     reg first_pass; //checks if it's the first loop to simulate a do while so we can enter the loop even if the condition is not yet met(still in the idle state)
     input task_read, task_write, task_hit; 
@@ -96,7 +117,7 @@ module fsm_tb;
       write <= task_write;
       hit <= task_hit;
        
-      $write("Test (R:%b, W:%b, H:%b) Path: ", task_read, task_write, task_hit);
+      //$write("Test (R:%b, W:%b, H:%b) Path: ", task_read, task_write, task_hit);
       
       //print the idle 
       print_state();      
@@ -121,23 +142,6 @@ module fsm_tb;
     end
   endtask
 
-  task print_state;
-    begin //decodes the current state and prints the corresponding state 
-      case(uut.st)
-        4'b0000: $write("IDLE ");
-        4'b0001: $write("COMPARE ");
-        4'b0010: $write("READ_HIT ");
-        4'b0011: $write("READ_MISS ");
-        4'b0100: $write("WRITE_HIT ");
-        4'b0101: $write("WRITE_MISS ");
-        4'b0110: $write("WRITE_BACK ");
-        4'b0111: $write("EVICT ");
-        4'b1000: $write("ALLOCATE ");
-        default: $write("UNKNOWN ");
-      endcase
-    end
-  endtask
-   
   initial begin
     $display("--Cache FSM Simulation--");
     
@@ -147,18 +151,46 @@ module fsm_tb;
     read = 0; 
     write = 0; 
     hit = 0;
+        
+    //initialising cache contents
+    cache_line = 32'hAAAA1111;
    
     //initial reset
     #10 rst = 1;
     #10 rst = 0;
-   
+    
+    //testing all combinations
+    $display("Test 1: read hit");
+    $display("Initial address: %h", cache_line);
     run_fsm(1, 0, 1); //read hit
-    run_fsm(1, 0, 0); //read miss
+    $display("Final address: %h", cache_line);
+
+    $display("");
+    $display("Test 2: write hit");
+    $display("Initial address: %h", cache_line);
     run_fsm(0, 1, 1); //write hit
+    //emulate cache update
+    cache_line = 32'h12345678;
+    $display("Final address: %h", cache_line);
+    
+    $display("");
+    $display("Test 3: read miss");
+    $display("Initial address: %h", cache_line);
+    run_fsm(1, 0, 0); //read miss
+    // emulate allocation from memory
+    cache_line = 32'hFACEB00C;
+    $display("Final address: %h", cache_line);
+
+    $display("");
+    $display("Test 4: write miss");
+    $display("Initial address: %h", cache_line);
     run_fsm(0, 1, 0); //write miss
-    run_fsm(0, 0, 0); //idle
-   
+    // emulate allocate + write
+    cache_line = 32'hDEADBEEF;
+    $display("Final address: %h", cache_line);
+ 
     $display("--End--");
     $stop;
   end
 endmodule
+
