@@ -1,9 +1,9 @@
 module fsm2(
   input clk,rst,read,write,hit,
-  output reg [3:0]st_out
+  output [3:0]st_out
   );
-  localparam ST_IDLE=4'b0000; //wait for signals from the cpu
-  localparam ST_COMPARE=4'b0001; //try to find tag in cache memory
+  localparam ST_IDLE=4'b0000; //wait for signals from the cpu (read or write request)
+  localparam ST_COMPARE=4'b0001; //try to find tag at the address index in cache memory
   localparam ST_READ_HIT=4'b0010; //read data from cache if tag was found
   localparam ST_READ_MISS=4'b0011; //read newly brought in data
   localparam ST_WRITE_HIT=4'b0100; //write data in cache and set block's dirty bit 
@@ -20,8 +20,9 @@ module fsm2(
   
   reg dirty; //dirty bit
   
+  assign st_out = st;
+  
   always @ (posedge clk, posedge rst) begin
-    st_out<=st;
     if(rst) begin
       st<=ST_IDLE; 
       dirty<=0;
@@ -83,15 +84,15 @@ module fsm2_tb;
     .st_out(st_out)
   );
    
-  //simple cache line
-  reg [31:0] cache_line;
+  //simple 2-row cache
+  reg [31:0] cache_line[0:1];
     
   //clock generator
   always #10 clk = ~clk;
 
   task print_state;
     begin //decodes the current state and prints the corresponding state 
-      case(uut.st)
+      case(st_out)
         4'b0000: $write("IDLE");
         4'b0001: $write("COMPARE");
         4'b0010: $write("READ_HIT");
@@ -124,7 +125,7 @@ module fsm2_tb;
       
       first_pass = 0;//initialise to 0 when fsm is still in the idle state 
 
-      while (first_pass==0 || (uut.st != 4'b0000)) begin
+      while (first_pass==0 || (st_out != 4'b0000)) begin
         first_pass = 1; //first loop is done->mark as completed
         //now the while only checks for the next idle state which marks the end of the current caching process
         @(posedge clk); //advance 1 clock cycle to the next state
@@ -153,44 +154,75 @@ module fsm2_tb;
     hit = 0;
         
     //initialising cache contents
-    cache_line = 32'hAAAA1111;
+    cache_line[0] = 32'h00002000;
+    cache_line[1] = 32'h00002040;
    
     //initial reset
     #10 rst = 1;
     #10 rst = 0;
     
     //testing all combinations
-    $display("Test 1: read hit");
-    $display("Initial address: %h", cache_line);
+    $display("TEST 1");
+    $display("Request: read from address 00002000 -> READ HIT");
+    $display("Initial address: %h", cache_line[0]);
     run_fsm(1, 0, 1); //read hit
-    $display("Final address: %h", cache_line);
+    $display("Final address: %h", cache_line[0]);
 
     $display("");
-    $display("Test 2: write hit");
-    $display("Initial address: %h", cache_line);
-    run_fsm(0, 1, 1); //write hit
-    //emulate cache update
-    cache_line = 32'h12345678;
-    $display("Final address: %h", cache_line);
+    $display("Request: read from address 00004000 -> READ MISS");
+    $display("Initial address: %h", cache_line[0]);
+    run_fsm(1, 0, 0); //read miss
+    //emulate allocation from memory
+    cache_line[0] = 32'h00004000;
+    $display("Final address: %h", cache_line[0]);
     
     $display("");
-    $display("Test 3: read miss");
-    $display("Initial address: %h", cache_line);
-    run_fsm(1, 0, 0); //read miss
-    // emulate allocation from memory
-    cache_line = 32'hFACEB00C;
-    $display("Final address: %h", cache_line);
+    $display("Request: write at address 00004000 -> WRITE HIT");
+    $display("Initial address: %h", cache_line[0]);
+    run_fsm(0, 1, 1); //write hit
+    $display("Final address: %h", cache_line[0]);
 
     $display("");
-    $display("Test 4: write miss");
-    $display("Initial address: %h", cache_line);
+    $display("Request: write at address FFFE0000 -> WRITE MISS");
+    $display("Initial address: %h", cache_line[0]);
     run_fsm(0, 1, 0); //write miss
-    // emulate allocate + write
-    cache_line = 32'hDEADBEEF;
-    $display("Final address: %h", cache_line);
+    //emulate allocate + write
+    cache_line[0] = 32'hFFFE0000;
+    $display("Final address: %h", cache_line[0]);
+    
+    #10 rst = 1;
+    #10 rst = 0;
+    
+    $display("");
+    $display("TEST 2:");
+    $display("Request: read from address 00000040 -> READ MISS");
+    $display("Initial address: %h", cache_line[1]);
+    run_fsm(1, 0, 0); //read miss
+    //emulate allocation from memory
+    cache_line[1] = 32'h00000040;
+    $display("Final address: %h", cache_line[1]);
+    
+    $display("");
+    $display("Request: write at address 00000040 -> WRITE HIT");
+    $display("Initial address: %h", cache_line[1]);
+    run_fsm(0, 1, 1); //write hit
+    $display("Final address: %h", cache_line[1]);
+    
+    $display("");
+    $display("Request: write at address 00004040 -> WRITE MISS");
+    $display("Initial address: %h", cache_line[1]);
+    run_fsm(0, 1, 0); //write miss
+    //emulate allocate + write
+    cache_line[1] = 32'h00004040;
+    $display("Final address: %h", cache_line[1]);
+    
+    $display("");
+    $display("Request: read from address 00004040 -> READ HIT");
+    $display("Initial address: %h", cache_line[1]);
+    run_fsm(1, 0, 1); //read hit
+    $display("Final address: %h", cache_line[1]);
  
     $display("--End--");
     $stop;
   end
 endmodule
-

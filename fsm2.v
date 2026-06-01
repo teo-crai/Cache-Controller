@@ -1,6 +1,6 @@
 module fsm2(
   input clk,rst,read,write,hit,
-  output reg [3:0]st_out
+  output [3:0]st_out
   );
   localparam ST_IDLE=4'b0000; //wait for signals from the cpu (read or write request)
   localparam ST_COMPARE=4'b0001; //try to find tag at the address index in cache memory
@@ -20,8 +20,9 @@ module fsm2(
   
   reg dirty; //dirty bit
   
+  assign st_out = st;
+  
   always @ (posedge clk, posedge rst) begin
-    st_out<=st;
     if(rst) begin
       st<=ST_IDLE; 
       dirty<=0;
@@ -91,7 +92,7 @@ module fsm2_tb;
 
   task print_state;
     begin //decodes the current state and prints the corresponding state 
-      case(uut.st)
+      case(st_out)
         4'b0000: $write("IDLE");
         4'b0001: $write("COMPARE");
         4'b0010: $write("READ_HIT");
@@ -108,7 +109,8 @@ module fsm2_tb;
   endtask
   
   task run_fsm;
-    reg first_pass; //checks if it's the first loop to simulate a do while so we can enter the loop even if the condition is not yet met(still in the idle state)
+    reg first_pass; //checks if it's the first loop to simulate a do while so we can enter the loop 
+    //even if the condition is not yet met(still in the idle state)
     input task_read, task_write, task_hit; 
     
     begin
@@ -124,7 +126,7 @@ module fsm2_tb;
       
       first_pass = 0;//initialise to 0 when fsm is still in the idle state 
 
-      while (first_pass==0 || (uut.st != 4'b0000)) begin
+      while (first_pass==0 || (st_out != 4'b0000)) begin
         first_pass = 1; //first loop is done->mark as completed
         //now the while only checks for the next idle state which marks the end of the current caching process
         @(posedge clk); //advance 1 clock cycle to the next state
